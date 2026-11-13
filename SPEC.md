@@ -22,7 +22,6 @@ internal/pricing     # USD cost per model per 1M tokens
 internal/metrics     # Prometheus collectors
 deploy/              # docker-compose, prometheus.yml, grafana provisioning + dashboard JSON
 bench/               # k6 scripts
-.github/workflows/   # CI
 config.example.yaml
 Dockerfile
 Makefile
