@@ -1,0 +1,55 @@
+# llmgate demo config (mounted at /etc/llmgate/config.yaml by docker-compose).
+# Env overrides applied by the gateway: LLMGATE_REDIS_URL, LLMGATE_LISTEN.
+listen: ":8080"
+redis_url: "redis://redis:6379/0"
+request_timeout: 30s
+
+routes:
+  # Demo / benchmark route: two mock instances, no API keys needed.
+  # Kill mock-primary via POST /admin/mock/fail?provider=mock-primary&rate=1.0
+  # and traffic falls back to mock-secondary.
+  demo:
+    - {provider: mock-primary, model: mock-echo}
+    - {provider: mock-secondary, model: mock-echo}
+
+  # Zero-latency mock: isolates gateway overhead (auth, Redis budget,
+  # routing, metrics, serialization). Used by bench/overhead.js.
+  bench-zero:
+    - {provider: mock-zero, model: mock-echo}
+
+  # Real providers first; falls through to the mock when keys are absent
+  # or providers fail.
+  default:
+    - {provider: anthropic, model: claude-haiku-5-5}
+    - {provider: openai, model: gpt-4o-mini}
+    - {provider: mock-secondary, model: mock-echo}
+
+# Providers are keyed by instance name; `type` selects the adapter.
+providers:
+  anthropic:
+    type: anthropic
+    base_url: "https://api.anthropic.com"
+    api_key_env: ANTHROPIC_API_KEY
+  openai:
+    type: openai
+    base_url: "https://api.openai.com"
+    api_key_env: OPENAI_API_KEY
+  mock-primary:
+    type: mock
+    latency: 80ms
+    fail_rate: 0
+  mock-secondary:
+    type: mock
+    latency: 150ms
+    fail_rate: 0
+  mock-zero:
+    type: mock
+    latency: 0s
+    fail_rate: 0
+
+# Short open window so the demo shows open -> half-open -> closed quickly.
+circuit_breaker: {failure_threshold: 5, open_for: 10s}
+
+keys:
+  # Generous limits so benchmarks are not throttled by the budget.
+  - {name: demo, key_env: LLMGATE_DEMO_KEY, tokens_per_day: 50000000, usd_per_day: 100.0, rpm: 100000}

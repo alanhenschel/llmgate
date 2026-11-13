@@ -1,0 +1,29 @@
+# Binaries
+/bin/
+/dist/
+/llmgate
+*.exe
+*.test
+
+# Go tooling
+coverage.out
+*.out
+*.prof
+go.work
+go.work.sum
+
+# Local config and secrets
+/config.yaml
+.env
+.env.*
+!.env.example
+
+# k6 / benchmark output
+bench/results/
+*.log
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

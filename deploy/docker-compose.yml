@@ -1,0 +1,101 @@
+# llmgate local demo stack: gateway + Redis + Prometheus + Grafana.
+#
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   podman compose -f deploy/docker-compose.yml up -d --build
+#
+# Bind mounts use the `z` flag so they work on SELinux hosts (Fedora/RHEL with
+# podman). Docker ignores it on hosts without SELinux.
+name: llmgate
+
+services:
+  llmgate:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: localhost/llmgate:dev
+    ports:
+      - "8080:8080"
+    environment:
+      LLMGATE_CONFIG: /etc/llmgate/config.yaml
+      LLMGATE_REDIS_URL: redis://redis:6379/0
+      LLMGATE_ADMIN: "1"
+      LLMGATE_DEMO_KEY: demo-key
+      # Optional: real providers. Empty values mean the default route falls
+      # through to the mock provider.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ./config.demo.yaml:/etc/llmgate/config.yaml:ro,z
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Assumes the binary is on PATH and supports a `healthcheck` subcommand
+      # that GETs http://127.0.0.1:8080/healthz and exits 0/1 (works in
+      # distroless/scratch images that have no curl/wget).
+      test: ["CMD", "llmgate", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  redis:
+    image: docker.io/library/redis:7.4.1-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  prometheus:
+    image: docker.io/prom/prometheus:v2.55.1
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+    depends_on:
+      llmgate:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:11.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/llmgate.json
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped

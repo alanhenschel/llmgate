@@ -1,0 +1,54 @@
+# llmgate example configuration. Copy to config.yaml (or set LLMGATE_CONFIG).
+# Env overrides: LLMGATE_LISTEN, LLMGATE_REDIS_URL, LLMGATE_ADMIN=1 (mock admin API).
+listen: ":8080"
+redis_url: "redis://localhost:6379/0"
+request_timeout: 60s   # per upstream attempt (time-to-first-chunk for streams)
+
+# Route = model alias clients send in the `model` field -> ordered fallback chain.
+# `provider` is a provider *instance name* from the section below.
+routes:
+  default:
+    - {provider: anthropic, model: claude-haiku-5-5}
+    - {provider: openai, model: gpt-4o-mini}
+    - {provider: ollama, model: llama3.2}
+  # Works without any API key: kill mock-primary and watch traffic move to
+  # mock-secondary (see README, "Demo").
+  demo:
+    - {provider: mock-primary, model: mock-echo}
+    - {provider: mock-secondary, model: mock-echo}
+
+# Keyed by instance name; `type` selects the adapter (defaults to the name).
+# Several instances of one type are fine.
+providers:
+  anthropic:
+    type: anthropic
+    base_url: "https://api.anthropic.com"
+    api_key_env: ANTHROPIC_API_KEY
+  openai:
+    type: openai
+    base_url: "https://api.openai.com"
+    api_key_env: OPENAI_API_KEY
+  ollama:
+    type: ollama                    # any OpenAI-compatible server works here
+    base_url: "http://localhost:11434"
+  mock-primary:
+    type: mock
+    latency: 50ms
+    chunk_delay: 30ms               # delay between streamed words
+    fail_rate: 0.0
+  mock-secondary:
+    type: mock
+    latency: 120ms
+    chunk_delay: 30ms
+    fail_rate: 0.0
+
+circuit_breaker: {failure_threshold: 5, open_for: 30s}
+
+# Optional: override built-in USD prices per 1M tokens (unknown models cost 0).
+# pricing:
+#   gpt-4o-mini: {input_per_1m: 0.15, output_per_1m: 0.60}
+
+# Gateway API keys. A limit of 0 means unlimited. Limits are per UTC day (tokens, USD)
+# and per minute (rpm).
+keys:
+  - {name: demo, key_env: LLMGATE_DEMO_KEY, tokens_per_day: 200000, usd_per_day: 2.0, rpm: 60}
